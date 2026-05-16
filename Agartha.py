@@ -1590,6 +1590,24 @@ given request then
                 self._cbBambdasValuable.setEnabled(False)
                 self._txtBambdasValuable.setEnabled(False)
 
+    def _cbBambdasScopeFunc(self, ev=None):
+        """Enable/disable the scope-mode radio buttons and the in-scope color picker."""
+        if self._cbBambdasScope.isSelected():
+            self._rbBambdasScopeHideShow.setEnabled(True)
+            self._rbBambdasScopeHighlight.setEnabled(True)
+            # Color picker is only relevant in Highlight mode
+            self._cbBambdasColorInScope.setEnabled(self._rbBambdasScopeHighlight.isSelected())
+        else:
+            self._rbBambdasScopeHideShow.setEnabled(False)
+            self._rbBambdasScopeHighlight.setEnabled(False)
+            self._cbBambdasColorInScope.setEnabled(False)
+
+    def _rbBambdasScopeFunc(self, ev=None):
+        """Enable/disable the in-scope color picker based on the selected radio button."""
+        self._cbBambdasColorInScope.setEnabled(
+            self._cbBambdasScope.isSelected() and self._rbBambdasScopeHighlight.isSelected()
+        )
+
     def _cbBambdasHTTPMethodsFunc(self, ev=None):
         if self._cbBambdasHTTPMethods.isSelected():
             self._txtBambdasHTTPMethods.setEnabled(True)
@@ -1705,19 +1723,36 @@ given request then
             self._lblBambdasNotification2.setForeground(Color.red)
             return
 
-        # remove white-spaces
-        if self._tbBambdasScopeURLs.text != self._txBambdasScopeURLs:
+        # --- Snapshot placeholder state BEFORE any mutation of the text panes ---
+        # We compare stripped versions so minor whitespace/newline differences
+        # introduced by setText() round-trips can never fool the check.
+        _scopeHasUserInput = (
+            bool(self._tbBambdasScopeURLs.text.strip()) and
+            self._tbBambdasScopeURLs.text.strip() != self._txBambdasScopeURLs.strip()
+        )
+        _scopeDoneHasUserInput = (
+            bool(self._tbBambdasScopeDoneURLs.text.strip()) and
+            self._tbBambdasScopeDoneURLs.text.strip() != self._txBambdasScopeDoneURLs.strip()
+        )
+        _blackListHasUserInput = (
+            bool(self._tbBambdasBlackListedURLs.text.strip()) and
+            self._tbBambdasBlackListedURLs.text.strip() != self._txBambdasBlackListedURLs.strip()
+        )
+
+        # remove white-spaces (only when the field has real content)
+        if _scopeHasUserInput:
             self._tbBambdasScopeURLs.setText("\n".join(l.strip() for l in self._tbBambdasScopeURLs.getText().splitlines()))
-        if self._tbBambdasScopeDoneURLs.text != self._txBambdasScopeDoneURLs:
+        if _scopeDoneHasUserInput:
             self._tbBambdasScopeDoneURLs.setText("\n".join(l.strip() for l in self._tbBambdasScopeDoneURLs.getText().splitlines()))
-        if self._tbBambdasBlackListedURLs.text != self._txBambdasBlackListedURLs:
+        if _blackListHasUserInput:
             self._tbBambdasBlackListedURLs.setText("\n".join(l.strip() for l in self._tbBambdasBlackListedURLs.getText().splitlines()))
         # remove white-spaces
-        # Filter out scope lines that have already been tested
-        urls_lines = self._tbBambdasScopeURLs.getText().split("\n")
-        done_urls_lines = set(self._tbBambdasScopeDoneURLs.getText().split("\n"))
-        new_urls_lines = [line if line.startswith("#") or re.sub(r"\{[^}]+\}|\*", ".*", line) not in {re.sub(r"\{[^}]+\}|\*", ".*", l) for l in done_urls_lines} else "" for line in urls_lines]
-        self._tbBambdasScopeURLs.setText("\n".join(new_urls_lines))
+        # Filter out scope lines that have already been tested (only when both fields have real content)
+        if _scopeHasUserInput:
+            urls_lines = self._tbBambdasScopeURLs.getText().split("\n")
+            done_urls_lines = set(self._tbBambdasScopeDoneURLs.getText().split("\n"))
+            new_urls_lines = [line if line.startswith("#") or re.sub(r"\{[^}]+\}|\*", ".*", line) not in {re.sub(r"\{[^}]+\}|\*", ".*", l) for l in done_urls_lines} else "" for line in urls_lines]
+            self._tbBambdasScopeURLs.setText("\n".join(new_urls_lines))
         # Filter out scope lines that have already been tested
 
         bambdas = "/**\n"
@@ -1729,9 +1764,9 @@ given request then
         bambdas += "// Toggle above when you want to wipe colors/notes without running checks.\n\n"
 
         bambdas += "// Testing scope URLs. \n"
-        if sum(1 for line in self._tbBambdasScopeURLs.text.splitlines() if line.strip() == '/') == 1:
+        if _scopeHasUserInput and sum(1 for line in self._tbBambdasScopeURLs.text.splitlines() if line.strip() == '/') == 1:
             bambdas += "String[] targetPaths = {\"/.*\"};\n"
-        elif self._tbBambdasScopeURLs.text != self._txBambdasScopeURLs and self._tbBambdasScopeURLs.text.strip():
+        elif _scopeHasUserInput:
             targetPaths = "{"
             for line in list(dict.fromkeys(self._tbBambdasScopeURLs.text.splitlines())):
                 if line.strip() and not line.strip().startswith("#"):
@@ -1741,29 +1776,25 @@ given request then
             targetPaths += "}"
             bambdas += "String[] targetPaths = " + targetPaths + ";\n"
         else:
-            # by default includes all - /
-            bambdas += "String[] targetPaths = {\"/.*\"};\n"
+            # No testing scope defined: empty array so the coloring loop never fires
+            bambdas += "String[] targetPaths = {};\n"
         bambdas += "// Define the URLs you want to actively assess here.\n\n"
 
-        if self._tbBambdasBlackListedURLs.getText() != '/' and self._tbBambdasBlackListedURLs.getText().strip() and self._tbBambdasBlackListedURLs.getText() != self._txBambdasBlackListedURLs:
+        if _blackListHasUserInput and self._tbBambdasBlackListedURLs.getText() != '/':
             bambdas += "// Black-Listed / Unwanted URLs\n"
-            if self._tbBambdasBlackListedURLs.text != self._txBambdasBlackListedURLs:
-                targetBlackListUrls = "{"
-                for line in list(dict.fromkeys(self._tbBambdasBlackListedURLs.text.splitlines())):
-                    if line.strip() and not line.strip().startswith("#"):
-                        targetBlackListUrls += "\"" + (re.sub(r"\{[^}]+\}|\*", ".*", line.strip()) + "/?(?:\\\\?.*)?$") + "\", "
-                if targetBlackListUrls != "{":
-                    targetBlackListUrls = targetBlackListUrls[:-2]
-                targetBlackListUrls += "}"
-                bambdas += "String[] targetBlackListUrls = " + targetBlackListUrls + ";\n"
-                bambdas += "// Add patterns here to ignore noise (health checks, static banners, monitor, etc.).\n"
-            else:
-                bambdas += "String[] targetBlackListUrls = {\"/YouCanPutBlackListURLsHere.*\"};\n"
-                bambdas += "// Add patterns here to ignore noise (health checks, static banners, monitor, etc.).\n"
+            targetBlackListUrls = "{"
+            for line in list(dict.fromkeys(self._tbBambdasBlackListedURLs.text.splitlines())):
+                if line.strip() and not line.strip().startswith("#"):
+                    targetBlackListUrls += "\"" + (re.sub(r"\{[^}]+\}|\*", ".*", line.strip()) + "/?(?:\\\\?.*)?$") + "\", "
+            if targetBlackListUrls != "{":
+                targetBlackListUrls = targetBlackListUrls[:-2]
+            targetBlackListUrls += "}"
+            bambdas += "String[] targetBlackListUrls = " + targetBlackListUrls + ";\n"
+            bambdas += "// Add patterns here to ignore noise (health checks, static banners, monitor, etc.).\n"
             bambdas += "\n"
 
         bambdas += "// Already-tested URLs (mark as completed).\n"
-        if self._tbBambdasScopeDoneURLs.text != self._txBambdasScopeDoneURLs and self._tbBambdasScopeDoneURLs.text:
+        if _scopeDoneHasUserInput:
             targetPaths = "{"
             for line in list(dict.fromkeys(self._tbBambdasScopeDoneURLs.text.splitlines())):
                 if line.strip() and not line.strip().startswith("#"):
@@ -1789,8 +1820,13 @@ given request then
         bambdas += "    return false;\n\n"
 
         if self._cbBambdasScope.isSelected():
-            bambdas += "// Display only items that are in scope and have a response.\n"
-            bambdas += "if (!requestResponse.hasResponse() || !requestResponse.request().isInScope())\n"
+            if self._rbBambdasScopeHideShow.isSelected():
+                bambdas += "// Display only items that are in scope and have a response.\n"
+                bambdas += "if (!requestResponse.hasResponse() || !requestResponse.request().isInScope())\n"
+            else:
+                # Highlight mode: still show everything, but note scope status for later coloring
+                bambdas += "// Display only items that have a response (scope items will be highlighted later).\n"
+                bambdas += "if (!requestResponse.hasResponse())\n"
         else:
             bambdas += "// Display only items that have a response\n"
             bambdas += "if (!requestResponse.hasResponse())\n"
@@ -2146,9 +2182,26 @@ String responseHeader = isDownloadHeaderPresent ? headersString.toString() : "";
             requestResponse.annotations().setNotes("");
     }
 
-    // Highlight items that match testing scope
+"""
+        # Highlight mode: color items that are within the Burp Suite project scope
+        if self._cbBambdasScope.isSelected() and self._rbBambdasScopeHighlight.isSelected():
+            inScopeColor = self._cbBambdasColorInScope.getSelectedItem()
+            bambdas += "    // Highlight items that are within the Burp Suite project scope\n"
+            bambdas += "    if (requestResponse.request().isInScope())"
+            if inScopeColor != "NONE":
+                bambdas += " {\n"
+                bambdas += "        requestResponse.annotations().setHighlightColor(HighlightColor." + inScopeColor + ");\n"
+                bambdas += "    }\n\n"
+            else:
+                bambdas += " { /* color is NONE – no highlight applied */ }\n\n"
+
+        bambdas += """    // Highlight items that match testing scope
     for (String targetPath : targetPaths)
-        if (Pattern.compile(targetPath, Pattern.CASE_INSENSITIVE).matcher(path).find() && targetPath != null && !targetPath.trim().isEmpty()"""     
+        if (Pattern.compile(targetPath, Pattern.CASE_INSENSITIVE).matcher(path).find() && targetPath != null && !targetPath.trim().isEmpty()"""
+        # In Highlight mode the loop must additionally check Burp project scope,
+        # otherwise every host that matches the path pattern would get coloured.
+        if self._cbBambdasScope.isSelected() and self._rbBambdasScopeHighlight.isSelected():
+            bambdas += " && requestResponse.request().isInScope()"
         if self._cbBambdasColorScope.getSelectedIndex() == 0:
             bambdas += " && (requestResponse.annotations().highlightColor() == HighlightColor.NONE)"
         bambdas += "){\n"
@@ -2180,7 +2233,7 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
 
         allUrls = False
         allUrlsBlacklisted = False
-        if sum(1 for line in self._tbBambdasScopeURLs.text.splitlines() if line.strip() == '/') == 1 or self._tbBambdasScopeURLs.text == self._txBambdasScopeURLs or self._tbBambdasScopeURLs.text.strip() == "":
+        if not _scopeHasUserInput or sum(1 for line in self._tbBambdasScopeURLs.text.splitlines() if line.strip() == '/') == 1:
             allUrls = True
         if sum(1 for line in self._tbBambdasBlackListedURLs.text.splitlines() if line.strip() == '/') == 1:
             allUrlsBlacklisted = True
@@ -2304,6 +2357,12 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
         self._tbBambdasBlackListedURLs.setForeground(Color.GRAY)
         self.updateBambdasScriptText("/* Bambdas Script will be in here automatically */")
         self._cbBambdasScope.setSelected(False)
+        self._rbBambdasScopeHideShow.setSelected(True)
+        self._rbBambdasScopeHideShow.setEnabled(False)
+        self._rbBambdasScopeHighlight.setSelected(False)
+        self._rbBambdasScopeHighlight.setEnabled(False)
+        self._cbBambdasColorInScope.setSelectedIndex(0)
+        self._cbBambdasColorInScope.setEnabled(False)
         self._cbBambdasExtIgnore.setSelected(True)
         self._cbBambdasDisplayDays.setEnabled(True)
         self._cbBambdasProcessDays.setEnabled(True)
@@ -2376,9 +2435,28 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
         self._cbBambdasforWhat.setEnabled(False)
         
         self._lblBambdasScope = JLabel("Only process in-scope items")
-        self._cbBambdasScope = JCheckBox('', False)
+        self._cbBambdasScope = JCheckBox('', False, itemStateChanged=self._cbBambdasScopeFunc)
         self._lblBambdasScope.setToolTipText("Choose whether to show only items within the current project scope or all items.")
         self._cbBambdasScope.setToolTipText("Toggle to show only in-scope items or everything.")
+
+        # Radio buttons – mode selector for the scope checkbox
+        self._rbBambdasScopeHideShow = JRadioButton("Hide/Show", True, actionPerformed=self._rbBambdasScopeFunc)
+        self._rbBambdasScopeHideShow.setToolTipText("Filter out items that are not in scope (default behaviour).")
+        self._rbBambdasScopeHideShow.setEnabled(False)
+        self._rbBambdasScopeHighlight = JRadioButton("Highlight", False, actionPerformed=self._rbBambdasScopeFunc)
+        self._rbBambdasScopeHighlight.setToolTipText("Keep all items visible but highlight the ones that are in scope.")
+        self._rbBambdasScopeHighlight.setEnabled(False)
+        self._bgBambdasScope = ButtonGroup()
+        self._bgBambdasScope.add(self._rbBambdasScopeHideShow)
+        self._bgBambdasScope.add(self._rbBambdasScopeHighlight)
+
+        # Color selector for Burp-scope items (Highlight mode only)
+        self._lblBambdasColorInScope = JLabel("Color for in-scope items")
+        self._cbBambdasColorInScope = JComboBox(('NONE', 'BLUE', 'CYAN', 'GRAY', 'GREEN', 'MAGENTA', 'ORANGE', 'PINK', 'RED', 'YELLOW'))
+        self._cbBambdasColorInScope.setSelectedIndex(0)
+        self._cbBambdasColorInScope.setEnabled(False)
+        self._lblBambdasColorInScope.setToolTipText("Highlight color applied to items that match the Burp Suite project scope (Highlight mode only).")
+        self._cbBambdasColorInScope.setToolTipText("Highlight color applied to items that match the Burp Suite project scope (Highlight mode only).")
         
         self._txtBambdasSearchHTMLCommnets = JTextField("The search will occur between the '<!--' and '-->' tags.", 100)
         self._txtBambdasSearchHTMLCommnets.setEnabled(False)
@@ -2489,6 +2567,7 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
                     .addComponent(self._btnBambdasRun)
                     .addComponent(self._lblBambdasforWhat)
                     .addComponent(self._lblBambdasScope)
+                    .addComponent(self._lblBambdasColorInScope)
                     .addComponent(self._cbBambdasExtIgnore)
                     .addComponent(self._lblBambdasColorScope)
                     .addComponent(self._lblBambdasColorScopeSecondary)
@@ -2512,7 +2591,13 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
                 .addGroup(layout.createParallelGroup(GroupLayout.Alignment.LEADING)
                     .addComponent(self._btnBambdasReset)
                     .addComponent(self._cbBambdasforWhat, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
-                    .addComponent(self._cbBambdasScope)
+                    .addGroup(layout.createSequentialGroup()
+                        .addComponent(self._cbBambdasScope)
+                        .addGap(10)
+                        .addComponent(self._rbBambdasScopeHideShow)
+                        .addGap(6)
+                        .addComponent(self._rbBambdasScopeHighlight))
+                    .addComponent(self._cbBambdasColorInScope, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
                     .addComponent(self._txtBambdasExtIgnoreKeywords)
                     .addComponent(self._cbBambdasColorScope, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
                     .addComponent(self._cbBambdasColorScopeSecondary, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
@@ -2549,7 +2634,12 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
                     .addComponent(self._cbBambdasforWhat))
                 .addGroup(layout.createParallelGroup(GroupLayout.Alignment.BASELINE)
                     .addComponent(self._lblBambdasScope)
-                    .addComponent(self._cbBambdasScope))
+                    .addComponent(self._cbBambdasScope)
+                    .addComponent(self._rbBambdasScopeHideShow)
+                    .addComponent(self._rbBambdasScopeHighlight))
+                .addGroup(layout.createParallelGroup(GroupLayout.Alignment.BASELINE)
+                    .addComponent(self._lblBambdasColorInScope)
+                    .addComponent(self._cbBambdasColorInScope))
                 .addGroup(layout.createParallelGroup(GroupLayout.Alignment.BASELINE)
                     .addComponent(self._cbBambdasExtIgnore)
                     .addComponent(self._txtBambdasExtIgnoreKeywords))
