@@ -1595,7 +1595,6 @@ given request then
         if self._cbBambdasScope.isSelected():
             self._rbBambdasScopeHideShow.setEnabled(True)
             self._rbBambdasScopeHighlight.setEnabled(True)
-            # Color picker is only relevant in Highlight mode
             self._cbBambdasColorInScope.setEnabled(self._rbBambdasScopeHighlight.isSelected())
         else:
             self._rbBambdasScopeHideShow.setEnabled(False)
@@ -1628,52 +1627,82 @@ given request then
 
     def funcBambdasRun(self, ev=None):
 
+        # --- Snapshot placeholder state FIRST, before any validation or mutation ---
+        # Stripped comparison makes the check immune to whitespace/newline round-trip
+        # artefacts introduced by any subsequent setText() call.
+        _scopeHasUserInput = (
+            bool(self._tbBambdasScopeURLs.text.strip()) and
+            self._tbBambdasScopeURLs.text.strip() != self._txBambdasScopeURLs.strip()
+        )
+        _scopeDoneHasUserInput = (
+            bool(self._tbBambdasScopeDoneURLs.text.strip()) and
+            self._tbBambdasScopeDoneURLs.text.strip() != self._txBambdasScopeDoneURLs.strip()
+        )
+        _blackListHasUserInput = (
+            bool(self._tbBambdasBlackListedURLs.text.strip()) and
+            self._tbBambdasBlackListedURLs.text.strip() != self._txBambdasBlackListedURLs.strip()
+        )
+        # Detect the "all paths" shorthand: only a bare "/" or "/*" line counts.
+        # "/*/something" is a valid wildcard-segment path, NOT a root shorthand.
+        _scopeHasRootPath = _scopeHasUserInput and any(
+            l.strip() in ("/", "/*")
+            for l in self._tbBambdasScopeURLs.getText().splitlines()
+            if l.strip() and not l.strip().startswith("#")
+        )
+        _blackListHasRootPath = _blackListHasUserInput and any(
+            l.strip() in ("/", "/*")
+            for l in self._tbBambdasBlackListedURLs.getText().splitlines()
+            if l.strip() and not l.strip().startswith("#")
+        )
+
         if self._cbBambdasDisplayDays.getSelectedIndex() < self._cbBambdasProcessDays.getSelectedIndex():
             self._lblBambdasNotification2.text = "The display period must not be shorter than the processing period."
             self._lblBambdasNotification2.setForeground(Color.red)
             return
         
         for line in self._tbBambdasScopeURLs.getText().splitlines():
-            if self._tbBambdasScopeURLs.text != self._txBambdasScopeURLs and self._tbBambdasScopeURLs.text.strip() and line.strip():
-                if line.strip().startswith("/*") or line.strip() == "/":
-                    self._tbBambdasScopeURLs.setText("/")
-                if " " in line.strip() and not line.strip().startswith("#"):
+            if _scopeHasUserInput and line.strip() and not line.strip().startswith("#"):
+                # Only a bare "/" or "/*" means "all paths" — skip further checks for those
+                if line.strip() in ("/", "/*"):
+                    continue
+                if " " in line.strip():
                     self._lblBambdasNotification2.text = "One or more of the test scope URLs contain spaces."
                     self._lblBambdasNotification2.setForeground(Color.red)
                     return
-                if not line.strip().startswith("/") and not line.strip().startswith("#"):
+                if not line.strip().startswith("/"):
                     self._lblBambdasNotification2.text = "Make sure all URLs in Testing Scope begin with a '/'"
                     self._lblBambdasNotification2.setForeground(Color.red)
                     return
         
         for line in self._tbBambdasScopeDoneURLs.getText().splitlines():
-            if self._tbBambdasScopeDoneURLs.text != self._txBambdasScopeDoneURLs and self._tbBambdasScopeDoneURLs.text and line.strip():
+            if _scopeDoneHasUserInput and line.strip() and not line.strip().startswith("#"):
                 if line.strip().startswith("/*") or line.strip() == "/":
                     self._lblBambdasNotification2.text = "You can not set root directory '/' in the tested URLs."
                     self._lblBambdasNotification2.setForeground(Color.red)
                     return
-                if " " in line.strip() and not line.strip().startswith("#"):
+                if " " in line.strip():
                     self._lblBambdasNotification2.text = "One or more of the tested URLs contain spaces."
                     self._lblBambdasNotification2.setForeground(Color.red)
                     return
-                if not line.strip().startswith("/") and not line.strip().startswith("#"):
+                if not line.strip().startswith("/"):
                     self._lblBambdasNotification2.text = "Make sure all URLs in Tested section begin with a '/'"
                     self._lblBambdasNotification2.setForeground(Color.red)
                     return
 
         for line in self._tbBambdasBlackListedURLs.getText().splitlines():
-            if self._tbBambdasBlackListedURLs.text != self._txBambdasBlackListedURLs and self._tbBambdasBlackListedURLs.text.strip() and line.strip():
-                if line.strip().startswith("/*") or line.strip() == "/":
-                    self._tbBambdasBlackListedURLs.setText("/")
-                    if self._tbBambdasScopeURLs.text == self._txBambdasScopeURLs or not self._tbBambdasScopeURLs.text.strip():
+            if _blackListHasUserInput and line.strip() and not line.strip().startswith("#"):
+                if line.strip() in ("/", "/*"):
+                    # "/" blacklist is only valid when a testing scope is also defined
+                    if not _scopeHasUserInput:
                         self._lblBambdasNotification2.text = "Root directory '/' can't be blacklisted, unless you provide scope URLs."
                         self._lblBambdasNotification2.setForeground(Color.red)
                         return
-                if " " in line.strip() and not line.strip().startswith("#"):
+                    continue
+                if " " in line.strip():
                     self._lblBambdasNotification2.text = "One or more of the Black-Listed URLs contain spaces."
                     self._lblBambdasNotification2.setForeground(Color.red)
                     return
-                if not line.strip().startswith("/") and not line.strip().startswith("#"):
+                if not line.strip().startswith("/"):
                     self._lblBambdasNotification2.text = "Make sure all URL in Black-Listed section begin with a '/'"
                     self._lblBambdasNotification2.setForeground(Color.red)
                     return
@@ -1723,22 +1752,6 @@ given request then
             self._lblBambdasNotification2.setForeground(Color.red)
             return
 
-        # --- Snapshot placeholder state BEFORE any mutation of the text panes ---
-        # We compare stripped versions so minor whitespace/newline differences
-        # introduced by setText() round-trips can never fool the check.
-        _scopeHasUserInput = (
-            bool(self._tbBambdasScopeURLs.text.strip()) and
-            self._tbBambdasScopeURLs.text.strip() != self._txBambdasScopeURLs.strip()
-        )
-        _scopeDoneHasUserInput = (
-            bool(self._tbBambdasScopeDoneURLs.text.strip()) and
-            self._tbBambdasScopeDoneURLs.text.strip() != self._txBambdasScopeDoneURLs.strip()
-        )
-        _blackListHasUserInput = (
-            bool(self._tbBambdasBlackListedURLs.text.strip()) and
-            self._tbBambdasBlackListedURLs.text.strip() != self._txBambdasBlackListedURLs.strip()
-        )
-
         # remove white-spaces (only when the field has real content)
         if _scopeHasUserInput:
             self._tbBambdasScopeURLs.setText("\n".join(l.strip() for l in self._tbBambdasScopeURLs.getText().splitlines()))
@@ -1764,7 +1777,8 @@ given request then
         bambdas += "// Toggle above when you want to wipe colors/notes without running checks.\n\n"
 
         bambdas += "// Testing scope URLs. \n"
-        if _scopeHasUserInput and sum(1 for line in self._tbBambdasScopeURLs.text.splitlines() if line.strip() == '/') == 1:
+        if _scopeHasRootPath:
+            # User typed "/" meaning "all paths"
             bambdas += "String[] targetPaths = {\"/.*\"};\n"
         elif _scopeHasUserInput:
             targetPaths = "{"
@@ -1780,7 +1794,7 @@ given request then
             bambdas += "String[] targetPaths = {};\n"
         bambdas += "// Define the URLs you want to actively assess here.\n\n"
 
-        if _blackListHasUserInput and self._tbBambdasBlackListedURLs.getText() != '/':
+        if _blackListHasUserInput and not _blackListHasRootPath:
             bambdas += "// Black-Listed / Unwanted URLs\n"
             targetBlackListUrls = "{"
             for line in list(dict.fromkeys(self._tbBambdasBlackListedURLs.text.splitlines())):
@@ -1824,8 +1838,8 @@ given request then
                 bambdas += "// Display only items that are in scope and have a response.\n"
                 bambdas += "if (!requestResponse.hasResponse() || !requestResponse.request().isInScope())\n"
             else:
-                # Highlight mode: still show everything, but note scope status for later coloring
-                bambdas += "// Display only items that have a response (scope items will be highlighted later).\n"
+                # Highlight mode: keep all items visible; scope colouring applied later
+                bambdas += "// Display only items that have a response (in-scope items will be highlighted later).\n"
                 bambdas += "if (!requestResponse.hasResponse())\n"
         else:
             bambdas += "// Display only items that have a response\n"
@@ -1873,7 +1887,7 @@ String responseHeader = isDownloadHeaderPresent ? headersString.toString() : "";
         bambdas += "var pathExt = requestResponse.request().pathWithoutQuery().toLowerCase();\n"
         bambdas += "// General vars\n\n"
 
-        if self._tbBambdasBlackListedURLs.getText() != '/' and self._tbBambdasBlackListedURLs.getText().strip() and self._tbBambdasBlackListedURLs.getText() != self._txBambdasBlackListedURLs:
+        if _blackListHasUserInput and not _blackListHasRootPath:
             bambdas += "// Apply blacklist to skip unwanted URLs\n"
             bambdas += "for (String targetPath : targetBlackListUrls)\n"
             bambdas += "    if (targetPath != null && !targetPath.trim().isEmpty() && Pattern.compile(targetPath, Pattern.CASE_INSENSITIVE).matcher(path).find())\n"
@@ -2183,7 +2197,7 @@ String responseHeader = isDownloadHeaderPresent ? headersString.toString() : "";
     }
 
 """
-        # Highlight mode: color items that are within the Burp Suite project scope
+        # Highlight mode: colour items that are in Burp Suite project scope
         if self._cbBambdasScope.isSelected() and self._rbBambdasScopeHighlight.isSelected():
             inScopeColor = self._cbBambdasColorInScope.getSelectedItem()
             bambdas += "    // Highlight items that are within the Burp Suite project scope\n"
@@ -2198,8 +2212,8 @@ String responseHeader = isDownloadHeaderPresent ? headersString.toString() : "";
         bambdas += """    // Highlight items that match testing scope
     for (String targetPath : targetPaths)
         if (Pattern.compile(targetPath, Pattern.CASE_INSENSITIVE).matcher(path).find() && targetPath != null && !targetPath.trim().isEmpty()"""
-        # In Highlight mode the loop must additionally check Burp project scope,
-        # otherwise every host that matches the path pattern would get coloured.
+        # In Highlight mode the loop must additionally check isInScope() so that a
+        # broad path pattern like "/" doesn't colour items on out-of-scope hosts.
         if self._cbBambdasScope.isSelected() and self._rbBambdasScopeHighlight.isSelected():
             bambdas += " && requestResponse.request().isInScope()"
         if self._cbBambdasColorScope.getSelectedIndex() == 0:
@@ -2223,7 +2237,7 @@ else {
     requestResponse.annotations().setNotes("");
 }
 """
-        if self._tbBambdasBlackListedURLs.getText() == '/':
+        if _blackListHasRootPath:
             bambdas += """
 // Root blacklist (/) selected: ignore everything unless a matching criterion is found (scope, tested, or suspicious flags)."
 if (!suspiciousHit && !matchedScope && !matchedDone)
@@ -2231,12 +2245,8 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
 """
         bambdas += "\nreturn true;"
 
-        allUrls = False
-        allUrlsBlacklisted = False
-        if not _scopeHasUserInput or sum(1 for line in self._tbBambdasScopeURLs.text.splitlines() if line.strip() == '/') == 1:
-            allUrls = True
-        if sum(1 for line in self._tbBambdasBlackListedURLs.text.splitlines() if line.strip() == '/') == 1:
-            allUrlsBlacklisted = True
+        allUrls = not _scopeHasUserInput or _scopeHasRootPath
+        allUrlsBlacklisted = _blackListHasRootPath
 
         self._lblBambdasNotification2.setForeground(Color.black)
         if allUrls:
@@ -2439,7 +2449,7 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
         self._lblBambdasScope.setToolTipText("Choose whether to show only items within the current project scope or all items.")
         self._cbBambdasScope.setToolTipText("Toggle to show only in-scope items or everything.")
 
-        # Radio buttons – mode selector for the scope checkbox
+        # Radio buttons — mode selector for the scope checkbox
         self._rbBambdasScopeHideShow = JRadioButton("Hide/Show", True, actionPerformed=self._rbBambdasScopeFunc)
         self._rbBambdasScopeHideShow.setToolTipText("Filter out items that are not in scope (default behaviour).")
         self._rbBambdasScopeHideShow.setEnabled(False)
@@ -2455,8 +2465,8 @@ if (!suspiciousHit && !matchedScope && !matchedDone)
         self._cbBambdasColorInScope = JComboBox(('NONE', 'BLUE', 'CYAN', 'GRAY', 'GREEN', 'MAGENTA', 'ORANGE', 'PINK', 'RED', 'YELLOW'))
         self._cbBambdasColorInScope.setSelectedIndex(0)
         self._cbBambdasColorInScope.setEnabled(False)
-        self._lblBambdasColorInScope.setToolTipText("Highlight color applied to items that match the Burp Suite project scope (Highlight mode only).")
-        self._cbBambdasColorInScope.setToolTipText("Highlight color applied to items that match the Burp Suite project scope (Highlight mode only).")
+        self._lblBambdasColorInScope.setToolTipText("Highlight color for items within the Burp Suite project scope (Highlight mode only).")
+        self._cbBambdasColorInScope.setToolTipText("Highlight color for items within the Burp Suite project scope (Highlight mode only).")
         
         self._txtBambdasSearchHTMLCommnets = JTextField("The search will occur between the '<!--' and '-->' tags.", 100)
         self._txtBambdasSearchHTMLCommnets.setEnabled(False)
